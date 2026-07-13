@@ -12,15 +12,30 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const DESCRIPTION =
+  "Drop a pin, get seen by nearby drivers, and connect safely until pickup.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL("https://hitchmate.100dayaichallenge.com"),
   title: "HitchMate — get picked up",
-  description:
-    "Drop a pin, get seen by nearby drivers, and connect safely until pickup.",
+  description: DESCRIPTION,
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     title: "HitchMate",
     statusBarStyle: "black-translucent",
+  },
+  openGraph: {
+    title: "HitchMate — get picked up",
+    description: DESCRIPTION,
+    images: ["/hero.png"],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "HitchMate — get picked up",
+    description: DESCRIPTION,
+    images: ["/hero.png"],
   },
 };
 
