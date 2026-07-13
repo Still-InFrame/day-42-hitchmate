@@ -244,7 +244,7 @@ export default function RideRoom({
   return (
     <div className="flex flex-1 flex-col">
       {/* Map */}
-      <div className="relative h-[42vh] w-full">
+      <div className="relative h-[38vh] w-full shrink-0">
         {KEY && riderPos ? (
           <APIProvider apiKey={KEY}>
             <Map
@@ -278,7 +278,7 @@ export default function RideRoom({
       {/* Arrival / status card */}
       {other && (
         <div
-          className={`mx-4 -mt-6 rounded-2xl border p-4 shadow-lg ${
+          className={`mx-4 mt-3 shrink-0 rounded-2xl border p-4 ${
             arriving ? "border-accent bg-surface-2" : "border-border bg-surface"
           }`}
         >
@@ -335,25 +335,27 @@ export default function RideRoom({
       )}
 
       {/* Chat */}
-      <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
-        {messages.map((m) => {
-          const mine = m.sender_id === userId;
-          return (
-            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${
-                  mine ? "bg-accent text-accent-fg" : "bg-surface-2"
-                }`}
-              >
-                {m.body}
+      <div ref={scrollRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 py-4">
+        {messages.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+            <span className="text-2xl">💬</span>
+            <p className="text-sm text-muted">Say hi and coordinate your pickup.</p>
+          </div>
+        ) : (
+          messages.map((m) => {
+            const mine = m.sender_id === userId;
+            return (
+              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${
+                    mine ? "bg-accent text-accent-fg" : "bg-surface-2"
+                  }`}
+                >
+                  {m.body}
+                </div>
               </div>
-            </div>
-          );
-        })}
-        {messages.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted">
-            Say hi and coordinate your pickup.
-          </p>
+            );
+          })
         )}
       </div>
 
