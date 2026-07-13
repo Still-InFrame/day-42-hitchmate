@@ -127,7 +127,9 @@ export default function SharedTrip({ token }: { token: string }) {
       at: trip.started_at,
       reached: ["in_progress", "completed"].includes(trip.status),
     },
-    { label: "Dropped off", at: trip.ended_at, reached: trip.status === "completed" },
+    // Completed rides render the "Trip complete" screen above, so on the live
+    // timeline this final stage is always still pending.
+    { label: "Dropped off", at: trip.ended_at, reached: false },
   ];
 
   return (
