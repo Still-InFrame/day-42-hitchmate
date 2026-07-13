@@ -58,19 +58,22 @@ export default function Onboarding() {
   async function handleCaptured(blob: Blob, previewUrl: string) {
     setCapturing(false);
     if (!userId) return;
+    setError("");
     setPhotoUrl(previewUrl); // instant local preview
-    const path = `${userId}/selfie-${Date.now()}.jpg`;
+    // Stable path so a retake overwrites the previous selfie (no orphaned files).
+    const path = `${userId}/selfie.jpg`;
     const { error: upErr } = await supabase.storage
       .from("hitchmate-avatars")
       .upload(path, blob, { contentType: "image/jpeg", upsert: true });
     if (upErr) {
-      setError("Upload failed: " + upErr.message);
+      setError("We couldn't save your selfie. Please try again.");
       return;
     }
     const {
       data: { publicUrl },
     } = supabase.storage.from("hitchmate-avatars").getPublicUrl(path);
-    setPhotoUrl(publicUrl);
+    // Cache-bust so a retake shows the new photo, not the CDN-cached old one.
+    setPhotoUrl(`${publicUrl}?t=${Date.now()}`);
   }
 
   async function save() {
@@ -91,7 +94,7 @@ export default function Onboarding() {
     );
     setSaving(false);
     if (saveErr) {
-      setError(saveErr.message);
+      setError("Something went wrong saving your profile. Please try again.");
       return;
     }
     router.replace("/map");
