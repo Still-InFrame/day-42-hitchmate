@@ -301,11 +301,14 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
 
       {/* Top bar */}
       <div className="pt-safe absolute inset-x-0 top-0 flex items-center justify-between px-4">
-        <div className="flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 backdrop-blur">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 backdrop-blur"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="" width={22} height={22} className="rounded-md" />
           <span className="text-sm font-bold">HitchMate</span>
-        </div>
+        </Link>
         <div className="flex items-center gap-2">
           <Link
             href="/history"

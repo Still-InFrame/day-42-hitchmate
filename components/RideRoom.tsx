@@ -40,6 +40,7 @@ export default function RideRoom({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const [stars, setStars] = useState(0);
@@ -314,7 +315,7 @@ export default function RideRoom({
       .eq("id", ride.id);
     announceRideGone(supabase, ride.id); // drop the pin off browsing maps
     announceTripUpdate(supabase, ride.share_token);
-    router.replace("/map");
+    router.replace("/dashboard");
   }
 
   async function report() {
@@ -334,7 +335,7 @@ export default function RideRoom({
         .eq("id", ride.id);
       announceRideGone(supabase, ride.id);
       announceTripUpdate(supabase, ride.share_token);
-      router.replace("/map");
+      router.replace("/dashboard");
     }
   }
 
@@ -410,10 +411,10 @@ export default function RideRoom({
         <span className="text-4xl">🚫</span>
         <h1 className="text-xl font-bold">Ride ended</h1>
         <button
-          onClick={() => router.replace("/map")}
+          onClick={() => router.replace("/dashboard")}
           className="btn-accent rounded-xl px-6 py-3"
         >
-          Back to map
+          Back to home
         </button>
       </main>
     );
@@ -473,10 +474,10 @@ export default function RideRoom({
 
         <div className="flex flex-col items-center gap-2">
           <button
-            onClick={() => router.replace("/map")}
+            onClick={() => router.replace("/dashboard")}
             className="btn-accent rounded-xl px-6 py-3"
           >
-            Back to map
+            Back to home
           </button>
           <button
             onClick={() => router.push("/history")}
@@ -557,6 +558,13 @@ export default function RideRoom({
             Map unavailable
           </div>
         )}
+        <button
+          onClick={() => router.push("/dashboard")}
+          style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
+          className="absolute left-4 z-10 flex items-center gap-1 rounded-full bg-surface/90 px-4 py-2 text-sm font-medium backdrop-blur"
+        >
+          ⌂ Home
+        </button>
       </div>
 
       {/* Arrival / status card */}
@@ -566,7 +574,10 @@ export default function RideRoom({
             arriving ? "border-accent bg-surface-2" : "border-border bg-surface"
           }`}
         >
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => setDetailsOpen(true)}
+            className="flex w-full items-center gap-3 text-left"
+          >
             <div className="h-12 w-12 overflow-hidden rounded-xl bg-surface-2">
               {other.photo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -581,6 +592,7 @@ export default function RideRoom({
                     ★ {other.rating_avg.toFixed(1)}
                   </span>
                 )}
+                <span className="ml-1 text-xs text-muted">›</span>
               </p>
               {isRider ? (
                 <p className="text-xs text-muted">
@@ -601,7 +613,7 @@ export default function RideRoom({
                 </p>
               </div>
             )}
-          </div>
+          </button>
 
           {/* Driver: hand off to native turn-by-turn navigation (choose app). */}
           {isDriver && ride.status === "accepted" && gMapsUrl && aMapsUrl && (
@@ -769,6 +781,63 @@ export default function RideRoom({
         />
       )}
       {cancelModal}
+
+      {/* Tap-the-card details sheet for the other party */}
+      {detailsOpen && other && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/60"
+          onClick={() => setDetailsOpen(false)}
+        >
+          <div
+            className="pb-safe mx-auto w-full max-w-md rounded-t-3xl border-t border-border bg-surface px-6 pt-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="h-24 w-24 overflow-hidden rounded-2xl bg-surface-2">
+                {other.photo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={other.photo_url} alt="" className="h-full w-full object-cover" />
+                ) : null}
+              </div>
+              <p className="mt-3 text-lg font-bold">{other.display_name ?? "User"}</p>
+              {other.rating_count > 0 && other.rating_avg != null ? (
+                <p className="text-sm text-accent">
+                  ★ {other.rating_avg.toFixed(1)}{" "}
+                  <span className="text-muted">
+                    · {other.rating_count} rating{other.rating_count > 1 ? "s" : ""}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-sm text-muted">No ratings yet</p>
+              )}
+              <p className="mt-1 text-xs uppercase tracking-wide text-muted">
+                {isRider ? "Your driver" : "Your rider"}
+              </p>
+            </div>
+
+            {isRider && driverProfile && (
+              <div className="mt-5 rounded-xl border border-border bg-surface-2 p-4">
+                <p className="text-sm text-muted">Vehicle</p>
+                <p className="font-medium">
+                  {driverProfile.vehicle_color} {driverProfile.vehicle_make_model}
+                </p>
+                {driverProfile.vehicle_plate && (
+                  <p className="mt-1 font-mono text-lg tracking-wider">
+                    {driverProfile.vehicle_plate}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setDetailsOpen(false)}
+              className="mt-5 h-12 w-full rounded-xl border border-border text-sm"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

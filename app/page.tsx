@@ -13,7 +13,7 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (user) redirect("/map");
+  if (user) redirect("/dashboard");
 
   return (
     <main className="flex flex-1 flex-col justify-between px-6 pt-safe pb-safe">

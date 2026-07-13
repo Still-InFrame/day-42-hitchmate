@@ -97,7 +97,7 @@ export default function Onboarding() {
       setError("Something went wrong saving your profile. Please try again.");
       return;
     }
-    router.replace("/map");
+    router.replace("/dashboard");
   }
 
   const photoIsRemote = photoUrl?.startsWith("http");

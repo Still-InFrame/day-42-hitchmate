@@ -12,7 +12,7 @@ export default function SignInButton() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/map`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
       },
     });
     if (error) setLoading(false);

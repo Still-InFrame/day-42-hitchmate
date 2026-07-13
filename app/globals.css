@@ -68,6 +68,15 @@ body {
 .hm-dot:nth-child(2) { animation-delay: 0.2s; }
 .hm-dot:nth-child(3) { animation-delay: 0.4s; }
 
+/* Pulsing glow for the "View Live Trip" call-to-action. */
+@keyframes hm-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45); }
+  50% { box-shadow: 0 0 22px 5px rgba(245, 158, 11, 0.55); }
+}
+.pulse-glow {
+  animation: hm-glow 2s ease-in-out infinite;
+}
+
 /* Reusable primary button. */
 .btn-accent {
   background: var(--accent);
