@@ -20,3 +20,7 @@ export function formatDistance(m: number): string {
   if (m < 1000) return `${Math.round(m / 10) * 10} m`;
   return `${(m / 1000).toFixed(1)} km`;
 }
+
+export function metersToMiles(m: number): number {
+  return m / 1609.344;
+}

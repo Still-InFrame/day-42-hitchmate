@@ -13,6 +13,8 @@ export interface Profile {
   vehicle_make_model: string | null;
   vehicle_color: string | null;
   vehicle_plate: string | null;
+  rating_avg: number | null;
+  rating_count: number;
   created_at: string;
 }
 
@@ -31,6 +33,11 @@ export interface Ride {
   expires_at: string;
   cancel_reason: string | null;
   cancelled_by: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  end_lat: number | null;
+  end_lng: number | null;
+  distance_meters: number | null;
 }
 
 export interface RideLocation {

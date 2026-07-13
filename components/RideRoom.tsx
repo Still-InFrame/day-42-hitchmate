@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { APIProvider, Map, Marker } from "@vis.gl/react-google-maps";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { haversineMeters, formatDistance } from "@/lib/geo";
+import { haversineMeters, formatDistance, metersToMiles } from "@/lib/geo";
 import { announceRideGone } from "@/lib/rideEvents";
+import { playAccepted, playEnded, armSound } from "@/lib/sound";
 import type { Ride, RideLocation, Profile, Message } from "@/lib/types";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -41,8 +42,13 @@ export default function RideRoom({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [stars, setStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [rated, setRated] = useState(false);
+  const [ratingBusy, setRatingBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastEtaRef = useRef(0);
+  const prevStatusRef = useRef(ride.status);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
@@ -129,23 +135,46 @@ export default function RideRoom({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, otherTyping]);
 
-  // Driver publishes their live position while the ride is active.
+  // Arm audio on first gesture; chime when a request is accepted or the ride ends.
+  useEffect(() => armSound(), []);
   useEffect(() => {
-    if (!isDriver || ride.status !== "accepted" || !navigator.geolocation) return;
-    let last = 0;
+    const prev = prevStatusRef.current;
+    const cur = ride.status;
+    if (prev === cur) return;
+    prevStatusRef.current = cur;
+    if (prev === "open" && cur === "accepted") playAccepted();
+    if (
+      (cur === "completed" || cur === "cancelled") &&
+      prev !== "completed" &&
+      prev !== "cancelled"
+    ) {
+      playEnded();
+    }
+  }, [ride.status]);
+
+  // Driver publishes live position while active, and records the journey path
+  // (track points) once the ride is in progress.
+  useEffect(() => {
+    const active = ride.status === "accepted" || ride.status === "in_progress";
+    if (!isDriver || !active || !navigator.geolocation) return;
+    let lastPub = 0;
+    let lastTrack = 0;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const now = Date.now();
-        if (now - last < 4000) return;
-        last = now;
-        supabase
-          .from("hitchmate_ride_locations")
-          .update({
-            driver_lat: pos.coords.latitude,
-            driver_lng: pos.coords.longitude,
-            driver_updated_at: new Date().toISOString(),
-          })
-          .eq("ride_id", ride.id);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (now - lastPub >= 4000) {
+          lastPub = now;
+          supabase
+            .from("hitchmate_ride_locations")
+            .update({ driver_lat: lat, driver_lng: lng, driver_updated_at: new Date().toISOString() })
+            .eq("ride_id", ride.id);
+        }
+        if (ride.status === "in_progress" && now - lastTrack >= 8000) {
+          lastTrack = now;
+          supabase.from("hitchmate_ride_track").insert({ ride_id: ride.id, lat, lng });
+        }
       },
       () => {},
       { enableHighAccuracy: true },
@@ -217,13 +246,57 @@ export default function RideRoom({
     setRide((r) => ({ ...r, status: "in_progress" })); // optimistic
     await supabase
       .from("hitchmate_rides")
-      .update({ status: "in_progress" })
+      .update({ status: "in_progress", started_at: new Date().toISOString() })
       .eq("id", ride.id);
   }
 
   async function completeRide() {
-    await supabase.from("hitchmate_rides").update({ status: "completed" }).eq("id", ride.id);
-    router.replace("/map");
+    // Log the ACTUAL journey: distance + real drop-off from the recorded track
+    // (the ending spot can differ from the pre-placed destination).
+    const { data: track } = await supabase
+      .from("hitchmate_ride_track")
+      .select("lat, lng")
+      .eq("ride_id", ride.id)
+      .order("recorded_at", { ascending: true })
+      .returns<{ lat: number; lng: number }[]>();
+    let dist = 0;
+    let endLat = loc?.driver_lat ?? null;
+    let endLng = loc?.driver_lng ?? null;
+    if (track && track.length > 1) {
+      for (let i = 1; i < track.length; i++) {
+        dist += haversineMeters(track[i - 1], track[i]);
+      }
+    }
+    if (track && track.length) {
+      endLat = track[track.length - 1].lat;
+      endLng = track[track.length - 1].lng;
+    }
+    setRide((r) => ({ ...r, status: "completed" })); // reveal the rating screen
+    await supabase
+      .from("hitchmate_rides")
+      .update({
+        status: "completed",
+        ended_at: new Date().toISOString(),
+        end_lat: endLat,
+        end_lng: endLng,
+        distance_meters: dist || null,
+      })
+      .eq("id", ride.id);
+  }
+
+  async function submitRating() {
+    const rateeId = isRider ? ride.driver_id : ride.rider_id;
+    if (!rateeId || stars < 1) return;
+    setRatingBusy(true);
+    await supabase.from("hitchmate_ratings").insert({
+      ride_id: ride.id,
+      rater_id: userId,
+      ratee_id: rateeId,
+      stars,
+      comment: ratingComment.trim() || null,
+    });
+    setRatingBusy(false);
+    setRated(true);
   }
 
   async function confirmCancel() {
@@ -326,20 +399,88 @@ export default function RideRoom({
     </div>
   ) : null;
 
-  // ----- Ended state -----
-  if (ride.status === "completed" || ride.status === "cancelled") {
+  // ----- Cancelled -----
+  if (ride.status === "cancelled") {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center pt-safe pb-safe">
-        <span className="text-4xl">{ride.status === "completed" ? "✅" : "🚫"}</span>
-        <h1 className="text-xl font-bold">
-          {ride.status === "completed" ? "Ride complete" : "Ride ended"}
-        </h1>
+        <span className="text-4xl">🚫</span>
+        <h1 className="text-xl font-bold">Ride ended</h1>
         <button
           onClick={() => router.replace("/map")}
           className="btn-accent rounded-xl px-6 py-3"
         >
           Back to map
         </button>
+      </main>
+    );
+  }
+
+  // ----- Completed: show trip summary + rate the other party -----
+  if (ride.status === "completed") {
+    const miles = ride.distance_meters != null ? metersToMiles(ride.distance_meters) : null;
+    const otherName = (isRider ? driverProfile : rider)?.display_name ?? "your match";
+    const otherRole = isRider ? "driver" : "rider";
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-5 px-8 pt-safe pb-safe">
+        <div className="text-center">
+          <span className="text-4xl">✅</span>
+          <h1 className="text-xl font-bold">Ride complete</h1>
+          {miles != null && (
+            <p className="mt-1 text-sm text-muted">{miles.toFixed(1)} mi traveled</p>
+          )}
+        </div>
+
+        {!rated ? (
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5">
+            <p className="text-center text-sm">
+              How was your trip with{" "}
+              <span className="font-semibold">{otherName}</span>?
+            </p>
+            <div className="mt-3 flex justify-center gap-1.5">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setStars(n)}
+                  className={`text-3xl ${n <= stars ? "text-accent" : "text-muted opacity-40"}`}
+                  aria-label={`${n} stars`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={ratingComment}
+              onChange={(e) => setRatingComment(e.target.value)}
+              placeholder={`Add a note about your ${otherRole} (optional)`}
+              rows={2}
+              className="mt-3 w-full rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={submitRating}
+              disabled={stars < 1 || ratingBusy}
+              className="btn-accent mt-3 h-12 w-full rounded-xl disabled:opacity-50"
+            >
+              {ratingBusy ? "Submitting…" : "Submit rating"}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm font-medium text-success">Thanks for your rating! ⭐</p>
+        )}
+
+        <div className="flex flex-col items-center gap-2">
+          <button
+            onClick={() => router.replace("/map")}
+            className="btn-accent rounded-xl px-6 py-3"
+          >
+            Back to map
+          </button>
+          <button
+            onClick={() => router.push("/history")}
+            className="text-sm text-muted"
+          >
+            View ride history
+          </button>
+        </div>
       </main>
     );
   }
@@ -436,7 +577,14 @@ export default function RideRoom({
               ) : null}
             </div>
             <div className="flex-1">
-              <p className="font-semibold">{other.display_name ?? "User"}</p>
+              <p className="font-semibold">
+                {other.display_name ?? "User"}
+                {other.rating_count > 0 && other.rating_avg != null && (
+                  <span className="ml-2 text-xs font-normal text-accent">
+                    ★ {other.rating_avg.toFixed(1)}
+                  </span>
+                )}
+              </p>
               {isRider ? (
                 <p className="text-xs text-muted">
                   {driverProfile?.vehicle_color} {driverProfile?.vehicle_make_model}

@@ -18,7 +18,12 @@ const FALLBACK = { lat: 37.7749, lng: -122.4194 };
 const MAX_PICKUP_DRIFT_M = 800;
 
 type Mode = "ride" | "drive";
-type RiderInfo = { display_name: string | null; photo_url: string | null };
+type RiderInfo = {
+  display_name: string | null;
+  photo_url: string | null;
+  rating_avg: number | null;
+  rating_count: number;
+};
 type Confirmed = { lat: number; lng: number; label: string | null; address: string };
 
 export default function MapView({
@@ -133,12 +138,18 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
     if (ids.length) {
       const { data: profs } = await supabase
         .from("hitchmate_profiles")
-        .select("id, display_name, photo_url")
+        .select("id, display_name, photo_url, rating_avg, rating_count")
         .in("id", ids)
         .returns<(RiderInfo & { id: string })[]>();
       const rmap: Record<string, RiderInfo> = {};
       profs?.forEach(
-        (p) => (rmap[p.id] = { display_name: p.display_name, photo_url: p.photo_url }),
+        (p) =>
+          (rmap[p.id] = {
+            display_name: p.display_name,
+            photo_url: p.photo_url,
+            rating_avg: p.rating_avg,
+            rating_count: p.rating_count,
+          }),
       );
       setRiders(rmap);
     }
@@ -295,12 +306,20 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
           <img src="/icon.svg" alt="" width={22} height={22} className="rounded-md" />
           <span className="text-sm font-bold">HitchMate</span>
         </div>
-        <button
-          onClick={signOut}
-          className="rounded-full bg-surface/90 px-3 py-1.5 text-xs text-muted backdrop-blur"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/history"
+            className="rounded-full bg-surface/90 px-3 py-1.5 text-xs text-muted backdrop-blur"
+          >
+            🕘 History
+          </Link>
+          <button
+            onClick={signOut}
+            className="rounded-full bg-surface/90 px-3 py-1.5 text-xs text-muted backdrop-blur"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Mode toggle */}
@@ -417,6 +436,15 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
               <div className="flex-1">
                 <p className="font-semibold">
                   {riders[selected.rider_id]?.display_name ?? "Rider"}
+                  {(riders[selected.rider_id]?.rating_count ?? 0) > 0 && (
+                    <span className="ml-2 text-xs font-normal text-accent">
+                      ★ {riders[selected.rider_id]?.rating_avg?.toFixed(1)}
+                      <span className="text-muted">
+                        {" "}
+                        ({riders[selected.rider_id]?.rating_count})
+                      </span>
+                    </span>
+                  )}
                 </p>
                 <p className="text-sm text-muted">
                   📍 {selectedCross ?? selected.approx_label ?? "Approximate area"}
