@@ -55,3 +55,15 @@ export function playEnded() {
   tone(520, 0, 0.3);
   tone(392, 0.14, 0.42);
 }
+
+// Quick, quiet outgoing blip when you send a message.
+export function playSent() {
+  tone(700, 0, 0.06, 0.07);
+  tone(920, 0.05, 0.08, 0.07);
+}
+
+// Brighter incoming two-tone when a message arrives.
+export function playReceived() {
+  tone(880, 0, 0.08, 0.11);
+  tone(1175, 0.07, 0.12, 0.11);
+}

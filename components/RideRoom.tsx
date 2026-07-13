@@ -7,7 +7,7 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { haversineMeters, formatDistance, metersToMiles } from "@/lib/geo";
 import { announceRideGone, announceTripUpdate } from "@/lib/rideEvents";
-import { playAccepted, playEnded, armSound } from "@/lib/sound";
+import { playAccepted, playEnded, armSound, playSent, playReceived } from "@/lib/sound";
 import type { Ride, RideLocation, Profile, Message } from "@/lib/types";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -54,6 +54,7 @@ export default function RideRoom({
   const typingStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
   const otherTypingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenMsgRef = useRef<Set<string>>(new Set());
 
   const isRider = ride.rider_id === userId;
   const isDriver = ride.driver_id === userId;
@@ -75,7 +76,9 @@ export default function RideRoom({
         .eq("ride_id", ride.id)
         .order("created_at", { ascending: true })
         .returns<Message[]>();
-      setMessages(data ?? []);
+      const list = data ?? [];
+      list.forEach((m) => seenMsgRef.current.add(m.id));
+      setMessages(list);
     })();
   }, [supabase, ride.id]);
 
@@ -90,6 +93,18 @@ export default function RideRoom({
         .then(({ data }) => data && setDriverProfile(data));
     }
   }, [ride.driver_id, driverProfile, supabase]);
+
+  // Append a message once (dedup across broadcast + postgres_changes) and chime
+  // when it's from the other party.
+  const ingestMessage = useCallback(
+    (nm: Message) => {
+      if (seenMsgRef.current.has(nm.id)) return;
+      seenMsgRef.current.add(nm.id);
+      setMessages((m) => [...m, nm]);
+      if (nm.sender_id !== userId) playReceived();
+    },
+    [userId],
+  );
 
   // Realtime: ride status, driver location, chat, and ephemeral typing.
   useEffect(() => {
@@ -108,17 +123,13 @@ export default function RideRoom({
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "hitchmate_messages", filter: `ride_id=eq.${ride.id}` },
-        (p: RealtimePostgresChangesPayload<Message>) => {
-          const nm = p.new as Message;
-          setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
-        },
+        (p: RealtimePostgresChangesPayload<Message>) => ingestMessage(p.new as Message),
       )
       // Chat is also delivered via broadcast so it survives a flaky
-      // postgres_changes subscription; dedup by id handles both arriving.
-      .on("broadcast", { event: "message" }, (msg: { payload: Message }) => {
-        const nm = msg.payload;
-        setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
-      })
+      // postgres_changes subscription; the seen-set dedups both paths.
+      .on("broadcast", { event: "message" }, (msg: { payload: Message }) =>
+        ingestMessage(msg.payload),
+      )
       .on(
         "broadcast",
         { event: "typing" },
@@ -138,7 +149,7 @@ export default function RideRoom({
       supabase.removeChannel(ch);
       channelRef.current = null;
     };
-  }, [supabase, ride.id, userId]);
+  }, [supabase, ride.id, userId, ingestMessage]);
 
   // Keep chat scrolled to the newest message (and the typing bubble).
   useEffect(() => {
@@ -240,6 +251,7 @@ export default function RideRoom({
     const body = input.trim();
     if (!body) return;
     setInput("");
+    playSent();
     typingActiveRef.current = false;
     channelRef.current?.send({
       type: "broadcast",
@@ -254,7 +266,8 @@ export default function RideRoom({
     if (data) {
       const nm = data as Message;
       // Show my own message immediately, and push it to the other party.
-      setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
+      seenMsgRef.current.add(nm.id);
+      setMessages((m) => [...m, nm]);
       channelRef.current?.send({ type: "broadcast", event: "message", payload: nm });
     }
   }, [input, supabase, ride.id, userId]);
