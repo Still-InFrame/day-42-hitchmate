@@ -24,6 +24,8 @@ export interface Ride {
   share_token: string;
   created_at: string;
   expires_at: string;
+  cancel_reason: string | null;
+  cancelled_by: string | null;
 }
 
 export interface RideLocation {

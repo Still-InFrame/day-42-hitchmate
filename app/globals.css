@@ -52,6 +52,22 @@ body {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
+/* Typing-indicator dots. */
+@keyframes hm-typing {
+  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+.hm-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted);
+  animation: hm-typing 1.2s infinite;
+}
+.hm-dot:nth-child(2) { animation-delay: 0.2s; }
+.hm-dot:nth-child(3) { animation-delay: 0.4s; }
+
 /* Reusable primary button. */
 .btn-accent {
   background: var(--accent);
