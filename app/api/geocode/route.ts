@@ -34,13 +34,17 @@ export async function POST(request: Request) {
   const res = await fetch(url);
   if (!res.ok) return NextResponse.json({ error: "geocode_failed" }, { status: 502 });
   const data = await res.json();
-  const result = data.results?.[0];
+  const results: {
+    formatted_address: string;
+    types: string[];
+    address_components: { long_name: string; types: string[] }[];
+  }[] = data.results ?? [];
+  const result = results[0];
   if (!result) return NextResponse.json({ error: "no_result" }, { status: 404 });
 
   // Coarse label: prefer neighborhood, then sublocality, then locality — never
   // the street/house number, so the public pin stays fuzzed.
-  const components: { long_name: string; types: string[] }[] =
-    result.address_components ?? [];
+  const components = result.address_components ?? [];
   const pick = (type: string) =>
     components.find((c) => c.types.includes(type))?.long_name;
   const label =
@@ -50,8 +54,15 @@ export async function POST(request: Request) {
     pick("administrative_area_level_2") ??
     null;
 
+  // Cross streets: prefer an actual intersection result ("A St & B Ave"), else
+  // fall back to the nearest road/street name.
+  const intersection = results.find((r) => r.types?.includes("intersection"));
+  const crossStreets =
+    intersection?.formatted_address.split(",")[0] ?? pick("route") ?? null;
+
   return NextResponse.json({
     formattedAddress: result.formatted_address as string,
     label,
+    crossStreets,
   });
 }

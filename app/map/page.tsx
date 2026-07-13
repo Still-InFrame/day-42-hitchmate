@@ -26,7 +26,7 @@ export default async function MapPage() {
     .from("hitchmate_rides")
     .select("id")
     .or(`rider_id.eq.${user.id},driver_id.eq.${user.id}`)
-    .in("status", ["open", "accepted"])
+    .in("status", ["open", "accepted", "in_progress"])
     .gt("expires_at", new Date().toISOString())
     .order("created_at", { ascending: false })
     .limit(1)

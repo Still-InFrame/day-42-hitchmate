@@ -1,4 +1,9 @@
-export type RideStatus = "open" | "accepted" | "completed" | "cancelled";
+export type RideStatus =
+  | "open"
+  | "accepted"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
 
 export interface Profile {
   id: string;

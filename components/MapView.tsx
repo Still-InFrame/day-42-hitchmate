@@ -9,6 +9,7 @@ import { haversineMeters, formatDistance } from "@/lib/geo";
 import AddressAutocomplete, {
   type AddressSelection,
 } from "@/components/AddressAutocomplete";
+import { MAP_CHANNEL } from "@/lib/rideEvents";
 import type { Ride } from "@/lib/types";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -64,8 +65,10 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
   const [address, setAddress] = useState("");
   const [confirmed, setConfirmed] = useState<Confirmed | null>(null);
   const [addrError, setAddrError] = useState("");
+  const [selectedCross, setSelectedCross] = useState<string | null>(null);
   const detectedRef = useRef(false);
   const centeredOnce = useRef(false);
+  const chRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Locate the user and recenter the map there once.
   useEffect(() => {
@@ -141,21 +144,61 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
     }
   }, [supabase, userId]);
 
-  // Live-refresh open rides as they appear / get taken / expire.
+  // Live-refresh open rides. New rides arrive via postgres_changes INSERT.
+  // Removals (cancel/accept) can't come that way — once a ride leaves 'open',
+  // RLS hides it from non-owners — so we listen for a "ride_gone" broadcast.
+  // A slow poll is a safety net for expiry and any missed events.
   useEffect(() => {
     fetchOpen();
     const ch = supabase
-      .channel("hm_open_rides")
+      .channel(MAP_CHANNEL, { config: { broadcast: { self: false } } })
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "hitchmate_rides" },
+        { event: "INSERT", schema: "public", table: "hitchmate_rides" },
         () => fetchOpen(),
       )
+      .on(
+        "broadcast",
+        { event: "ride_gone" },
+        (msg: { payload: { id: string } }) => {
+          const id = msg.payload.id;
+          setOpenRides((rs) => rs.filter((r) => r.id !== id));
+          setSelected((s) => (s?.id === id ? null : s));
+        },
+      )
       .subscribe();
+    chRef.current = ch;
+    const poll = setInterval(fetchOpen, 20000);
     return () => {
       supabase.removeChannel(ch);
+      chRef.current = null;
+      clearInterval(poll);
     };
   }, [supabase, fetchOpen]);
+
+  // When a pin is selected, resolve cross streets for its fuzzed area (privacy
+  // preserved — this geocodes the ~300m approx point, not the exact location).
+  useEffect(() => {
+    if (!selected) {
+      setSelectedCross(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedCross(null);
+    fetch("/api/geocode", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lat: selected.approx_lat, lng: selected.approx_lng }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled) setSelectedCross(d?.crossStreets ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   function onSelectAddress(sel: AddressSelection) {
     if (myPos) {
@@ -203,6 +246,12 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
       fetchOpen();
       return;
     }
+    // Tell other browsing maps this pin is gone.
+    chRef.current?.send({
+      type: "broadcast",
+      event: "ride_gone",
+      payload: { id: ride.id },
+    });
     router.push(`/ride/${ride.id}`);
   }
 
@@ -370,7 +419,12 @@ function MapInner({ userId, canDrive }: { userId: string; canDrive: boolean }) {
                   {riders[selected.rider_id]?.display_name ?? "Rider"}
                 </p>
                 <p className="text-sm text-muted">
-                  {selected.approx_label ? `📍 ${selected.approx_label} · ` : ""}
+                  📍 {selectedCross ?? selected.approx_label ?? "Approximate area"}
+                  {selectedCross && selected.approx_label
+                    ? ` · ${selected.approx_label}`
+                    : ""}
+                </p>
+                <p className="text-xs text-muted">
                   {selected.destination_note
                     ? `Heading: ${selected.destination_note}`
                     : "No destination given"}

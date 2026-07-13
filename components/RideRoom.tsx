@@ -6,6 +6,7 @@ import { APIProvider, Map, Marker } from "@vis.gl/react-google-maps";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { haversineMeters, formatDistance } from "@/lib/geo";
+import { announceRideGone } from "@/lib/rideEvents";
 import type { Ride, RideLocation, Profile, Message } from "@/lib/types";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -211,6 +212,15 @@ export default function RideRoom({
       .insert({ ride_id: ride.id, sender_id: userId, body });
   }, [input, supabase, ride.id, userId]);
 
+  // Either party marks the pickup as happened — the ride is now underway.
+  async function startRide() {
+    setRide((r) => ({ ...r, status: "in_progress" })); // optimistic
+    await supabase
+      .from("hitchmate_rides")
+      .update({ status: "in_progress" })
+      .eq("id", ride.id);
+  }
+
   async function completeRide() {
     await supabase.from("hitchmate_rides").update({ status: "completed" }).eq("id", ride.id);
     router.replace("/map");
@@ -227,6 +237,7 @@ export default function RideRoom({
         cancelled_by: userId,
       })
       .eq("id", ride.id);
+    announceRideGone(supabase, ride.id); // drop the pin off browsing maps
     router.replace("/map");
   }
 
@@ -245,6 +256,7 @@ export default function RideRoom({
           cancelled_by: userId,
         })
         .eq("id", ride.id);
+      announceRideGone(supabase, ride.id);
       router.replace("/map");
     }
   }
@@ -447,7 +459,7 @@ export default function RideRoom({
           </div>
 
           {/* Driver: hand off to native turn-by-turn navigation (choose app). */}
-          {isDriver && gMapsUrl && aMapsUrl && (
+          {isDriver && ride.status === "accepted" && gMapsUrl && aMapsUrl && (
             <div className="relative mt-3">
               <button
                 onClick={() => setNavOpen((o) => !o)}
@@ -479,12 +491,17 @@ export default function RideRoom({
               )}
             </div>
           )}
-          {isRider && arriving && (
+          {isRider && ride.status === "accepted" && arriving && (
             <p className="mt-3 rounded-lg bg-accent/15 px-3 py-2 text-sm font-medium text-accent">
               {driverProfile?.display_name?.split(" ")[0] ?? "Your driver"} is arriving —
               look for {driverProfile?.vehicle_color ? `a ${driverProfile.vehicle_color} ` : "the "}
               {driverProfile?.vehicle_make_model ?? "vehicle"}
               {driverProfile?.vehicle_plate ? `, plate ${driverProfile.vehicle_plate}` : ""}.
+            </p>
+          )}
+          {ride.status === "in_progress" && (
+            <p className="mt-3 rounded-lg bg-success/15 px-3 py-2 text-sm font-medium text-success">
+              🚗 Ride in progress — enjoy the trip!
             </p>
           )}
         </div>
@@ -584,10 +601,14 @@ export default function RideRoom({
             )}
           </div>
           <button
-            onClick={completeRide}
+            onClick={ride.status === "accepted" ? startRide : completeRide}
             className="text-sm font-medium text-success"
           >
-            {isDriver ? "Picked up ✓" : "I've been picked up ✓"}
+            {ride.status === "accepted"
+              ? isDriver
+                ? "Start ride"
+                : "I've been picked up"
+              : "Complete ride"}
           </button>
         </div>
       </div>
