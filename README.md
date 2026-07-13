@@ -1,5 +1,7 @@
 # HitchMate
 
+**Live:** https://hitchmate.100dayaichallenge.com
+
 ![HitchMate — stick out your thumb, digitally](./public/hero.png)
 
 _Product-concept mockup — an illustrative marketing render, not a literal screenshot of the live app._
