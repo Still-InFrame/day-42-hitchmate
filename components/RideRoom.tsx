@@ -6,7 +6,7 @@ import { APIProvider, Map, Marker } from "@vis.gl/react-google-maps";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { haversineMeters, formatDistance, metersToMiles } from "@/lib/geo";
-import { announceRideGone } from "@/lib/rideEvents";
+import { announceRideGone, announceTripUpdate } from "@/lib/rideEvents";
 import { playAccepted, playEnded, armSound } from "@/lib/sound";
 import type { Ride, RideLocation, Profile, Message } from "@/lib/types";
 
@@ -248,6 +248,7 @@ export default function RideRoom({
       .from("hitchmate_rides")
       .update({ status: "in_progress", started_at: new Date().toISOString() })
       .eq("id", ride.id);
+    announceTripUpdate(supabase, ride.share_token);
   }
 
   async function completeRide() {
@@ -282,6 +283,7 @@ export default function RideRoom({
         distance_meters: dist || null,
       })
       .eq("id", ride.id);
+    announceTripUpdate(supabase, ride.share_token);
   }
 
   async function submitRating() {
@@ -311,6 +313,7 @@ export default function RideRoom({
       })
       .eq("id", ride.id);
     announceRideGone(supabase, ride.id); // drop the pin off browsing maps
+    announceTripUpdate(supabase, ride.share_token);
     router.replace("/map");
   }
 
@@ -330,6 +333,7 @@ export default function RideRoom({
         })
         .eq("id", ride.id);
       announceRideGone(supabase, ride.id);
+      announceTripUpdate(supabase, ride.share_token);
       router.replace("/map");
     }
   }

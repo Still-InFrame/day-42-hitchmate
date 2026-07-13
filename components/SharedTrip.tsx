@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { APIProvider, Map, Marker } from "@vis.gl/react-google-maps";
 import { createClient } from "@/lib/supabase/client";
+import { tripChannel } from "@/lib/rideEvents";
 import type { RideStatus } from "@/lib/types";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -19,7 +20,16 @@ interface Trip {
   driver_lat: number | null;
   driver_lng: number | null;
   destination_note: string | null;
+  created_at: string | null;
+  accepted_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
 }
+
+const fmtTime = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : "";
 
 export default function SharedTrip({ token }: { token: string }) {
   const supabase = createClient();
@@ -39,12 +49,20 @@ export default function SharedTrip({ token }: { token: string }) {
     setState("ok");
   }, [supabase, token]);
 
-  // Initial load + poll for live driver movement (public page can't use RLS realtime).
+  // Instant refresh on stage changes (broadcast), plus a short poll for live
+  // driver movement (public page can't use RLS realtime for row data).
   useEffect(() => {
     load();
-    const id = setInterval(load, 10000);
-    return () => clearInterval(id);
-  }, [load]);
+    const ch = supabase
+      .channel(tripChannel(token), { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "update" }, () => load())
+      .subscribe();
+    const poll = setInterval(load, 4000);
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(poll);
+    };
+  }, [supabase, token, load]);
 
   if (state === "loading") {
     return (
@@ -59,9 +77,7 @@ export default function SharedTrip({ token }: { token: string }) {
       <main className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center pt-safe pb-safe">
         <span className="text-4xl">🔗</span>
         <h1 className="text-xl font-bold">Trip link not available</h1>
-        <p className="text-sm text-muted">
-          This link is invalid, or the trip has ended.
-        </p>
+        <p className="text-sm text-muted">This link is invalid, or the trip has ended.</p>
       </main>
     );
   }
@@ -69,10 +85,12 @@ export default function SharedTrip({ token }: { token: string }) {
   if (trip.status === "completed" || trip.status === "cancelled") {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center pt-safe pb-safe">
-        <span className="text-4xl">✅</span>
-        <h1 className="text-xl font-bold">Trip has ended</h1>
+        <span className="text-4xl">{trip.status === "completed" ? "✅" : "🚫"}</span>
+        <h1 className="text-xl font-bold">
+          {trip.status === "completed" ? "Trip complete" : "Trip ended"}
+        </h1>
         <p className="text-sm text-muted">
-          {trip.rider_name ?? "Your friend"}&apos;s ride is complete.
+          {trip.rider_name ?? "Your friend"}&apos;s ride has ended.
         </p>
       </main>
     );
@@ -86,10 +104,35 @@ export default function SharedTrip({ token }: { token: string }) {
     trip.driver_lat != null && trip.driver_lng != null
       ? { lat: trip.driver_lat, lng: trip.driver_lng }
       : null;
+  const driverFirst = trip.driver_name?.split(" ")[0] ?? "The driver";
+
+  const headline =
+    trip.status === "open"
+      ? "Waiting for a driver…"
+      : trip.status === "in_progress"
+        ? "On the trip 🚗"
+        : `${driverFirst} is on the way`;
+
+  // Stage progress is driven by the current status; timestamps are shown when
+  // available (older rides may be missing some).
+  const stages: { label: string; at: string | null; reached: boolean }[] = [
+    { label: "Requested a ride", at: trip.created_at, reached: true },
+    {
+      label: `${driverFirst} accepted`,
+      at: trip.accepted_at,
+      reached: ["accepted", "in_progress", "completed"].includes(trip.status),
+    },
+    {
+      label: "Picked up",
+      at: trip.started_at,
+      reached: ["in_progress", "completed"].includes(trip.status),
+    },
+    { label: "Dropped off", at: trip.ended_at, reached: trip.status === "completed" },
+  ];
 
   return (
     <main className="flex flex-1 flex-col pb-safe">
-      <div className="relative h-[45vh] w-full">
+      <div className="relative h-[42vh] w-full shrink-0">
         {KEY && (riderPos || driverPos) ? (
           <APIProvider apiKey={KEY}>
             <Map
@@ -128,8 +171,8 @@ export default function SharedTrip({ token }: { token: string }) {
 
         {trip.status === "open" ? (
           <p className="mt-6 rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
-            Waiting for a driver to accept. You&apos;ll see the driver and their
-            live location here once matched.
+            {headline} — you&apos;ll see the driver and their live location here
+            once matched.
           </p>
         ) : (
           <div className="mt-6 flex items-center gap-4 rounded-2xl border border-border bg-surface p-4">
@@ -140,17 +183,47 @@ export default function SharedTrip({ token }: { token: string }) {
               ) : null}
             </div>
             <div>
-              <p className="font-semibold">{trip.driver_name ?? "Driver"} is on the way</p>
+              <p className="font-semibold">{headline}</p>
               <p className="text-sm text-muted">
-                {trip.vehicle ?? "Vehicle"}
+                {trip.driver_name ?? "Driver"} · {trip.vehicle ?? "Vehicle"}
                 {trip.plate ? ` · ${trip.plate}` : ""}
               </p>
             </div>
           </div>
         )}
 
-        <p className="mt-6 text-center text-xs text-muted">
-          Shared via HitchMate for safety. Location updates live until pickup.
+        {/* Timestamped stage timeline */}
+        <ol className="mt-6">
+          {stages.map((s, i) => {
+            const reached = s.reached;
+            const last = i === stages.length - 1;
+            return (
+              <li key={i} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span
+                    className={`mt-1 h-3 w-3 shrink-0 rounded-full ${
+                      reached ? "bg-accent" : "border border-border bg-surface-2"
+                    }`}
+                  />
+                  {!last && (
+                    <span
+                      className={`w-px flex-1 ${reached ? "bg-accent/50" : "bg-border"}`}
+                    />
+                  )}
+                </div>
+                <div className={last ? "pb-0" : "pb-5"}>
+                  <p className={`text-sm ${reached ? "font-medium" : "text-muted"}`}>
+                    {s.label}
+                  </p>
+                  {s.at && <p className="text-xs text-muted">{fmtTime(s.at)}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+
+        <p className="mt-4 pb-6 text-center text-xs text-muted">
+          Shared via HitchMate for safety. Updates live until drop-off.
         </p>
       </div>
     </main>

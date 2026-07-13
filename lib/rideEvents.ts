@@ -15,3 +15,17 @@ export function announceRideGone(supabase: SupabaseClient, rideId: string) {
     }
   });
 }
+
+export const tripChannel = (token: string) => `trip:${token}`;
+
+// Ping a public share-token channel so anyone following the shared trip link
+// refetches immediately when the stage changes (started, completed, cancelled).
+export function announceTripUpdate(supabase: SupabaseClient, shareToken: string) {
+  const ch = supabase.channel(tripChannel(shareToken));
+  ch.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      ch.send({ type: "broadcast", event: "update", payload: {} });
+      setTimeout(() => supabase.removeChannel(ch), 1500);
+    }
+  });
+}
