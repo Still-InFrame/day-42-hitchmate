@@ -108,8 +108,17 @@ export default function RideRoom({
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "hitchmate_messages", filter: `ride_id=eq.${ride.id}` },
-        (p: RealtimePostgresChangesPayload<Message>) => setMessages((m) => [...m, p.new as Message]),
+        (p: RealtimePostgresChangesPayload<Message>) => {
+          const nm = p.new as Message;
+          setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
+        },
       )
+      // Chat is also delivered via broadcast so it survives a flaky
+      // postgres_changes subscription; dedup by id handles both arriving.
+      .on("broadcast", { event: "message" }, (msg: { payload: Message }) => {
+        const nm = msg.payload;
+        setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
+      })
       .on(
         "broadcast",
         { event: "typing" },
@@ -237,9 +246,17 @@ export default function RideRoom({
       event: "typing",
       payload: { from: userId, typing: false },
     });
-    await supabase
+    const { data } = await supabase
       .from("hitchmate_messages")
-      .insert({ ride_id: ride.id, sender_id: userId, body });
+      .insert({ ride_id: ride.id, sender_id: userId, body })
+      .select()
+      .single();
+    if (data) {
+      const nm = data as Message;
+      // Show my own message immediately, and push it to the other party.
+      setMessages((m) => (m.some((x) => x.id === nm.id) ? m : [...m, nm]));
+      channelRef.current?.send({ type: "broadcast", event: "message", payload: nm });
+    }
   }, [input, supabase, ride.id, userId]);
 
   // Either party marks the pickup as happened — the ride is now underway.
