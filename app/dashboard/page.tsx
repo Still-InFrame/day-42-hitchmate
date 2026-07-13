@@ -41,6 +41,7 @@ export default async function Dashboard() {
   const totalMiles = metersToMiles(
     (milesRows ?? []).reduce((s, r) => s + (r.distance_meters ?? 0), 0),
   );
+  const ridesCompleted = (milesRows ?? []).length;
 
   const firstName = profile!.display_name!.split(" ")[0];
 
@@ -77,12 +78,18 @@ export default async function Dashboard() {
         </Link>
       )}
 
-      <div className="rounded-2xl border border-border bg-surface p-5">
-        <p className="text-sm text-muted">Total distance traveled</p>
-        <p className="mt-1 text-4xl font-bold">
-          {totalMiles.toFixed(1)}{" "}
-          <span className="text-lg font-medium text-muted">mi</span>
-        </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <p className="text-sm text-muted">Miles traveled</p>
+          <p className="mt-1 text-3xl font-bold">
+            {totalMiles.toFixed(1)}{" "}
+            <span className="text-base font-medium text-muted">mi</span>
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <p className="text-sm text-muted">Rides completed</p>
+          <p className="mt-1 text-3xl font-bold">{ridesCompleted}</p>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
