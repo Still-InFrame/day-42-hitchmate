@@ -114,7 +114,8 @@ export default function JourneyMap({
         )}
         <button
           onClick={() => router.push("/history")}
-          className="pt-safe absolute left-4 top-0 mt-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs backdrop-blur"
+          style={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
+          className="absolute left-4 z-10 flex items-center gap-1 rounded-full bg-surface/90 px-4 py-2 text-sm font-medium backdrop-blur"
         >
           ← History
         </button>

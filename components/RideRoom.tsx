@@ -557,13 +557,6 @@ export default function RideRoom({
             Map unavailable
           </div>
         )}
-
-        <button
-          onClick={() => router.replace("/map")}
-          className="pt-safe absolute left-4 top-0 mt-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs backdrop-blur"
-        >
-          ← Map
-        </button>
       </div>
 
       {/* Arrival / status card */}
